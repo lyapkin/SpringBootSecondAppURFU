@@ -12,6 +12,7 @@ import org.springframework.web.bind.annotation.RestController;
 import ru.liapkin.springbootsecondappurfu.exception.UnsupportedCodeException;
 import ru.liapkin.springbootsecondappurfu.exception.ValidationFailedException;
 import ru.liapkin.springbootsecondappurfu.model.*;
+import ru.liapkin.springbootsecondappurfu.service.BonusService;
 import ru.liapkin.springbootsecondappurfu.service.ModifyRequestService;
 import ru.liapkin.springbootsecondappurfu.service.ModifyResponseService;
 import ru.liapkin.springbootsecondappurfu.service.ValidationService;
@@ -27,14 +28,17 @@ public class MyController {
     private final ValidationService validationService;
     private final ModifyResponseService modifyResponseService;
     private final ModifyRequestService modifyRequestService;
+    private final BonusService bonusService;
 
     @Autowired
     public MyController(ValidationService validationService,
                         @Qualifier("ModifySystemTimeResponseService") ModifyResponseService modifyResponseService,
-                        @Qualifier("ModifySourceRequestService") ModifyRequestService modifyRequestService) {
+                        @Qualifier("ModifySourceRequestService") ModifyRequestService modifyRequestService,
+                        BonusService bonusService) {
         this.validationService = validationService;
         this.modifyResponseService = modifyResponseService;
         this.modifyRequestService = modifyRequestService;
+        this.bonusService = bonusService;
     }
 
     @PostMapping(value = "/feedback")
@@ -44,16 +48,9 @@ public class MyController {
 
         request.setReceivedTime(DateTimeUtil.getCustomFormat().format(new Date()));
 
-        Response response = Response.builder()
-                .uid(request.getUid())
-                .operationUid(request.getOperationUid())
-                .systemTime(DateTimeUtil.getCustomFormat().format(new Date()))
-                .code(Codes.SUCCESS)
-                .errorCode(ErrorCodes.EMPTY)
-                .errorMessage(ErrorMessages.EMPTY)
-                .build();
+        double bonus = bonusService.calculate(request);
 
-        log.info("Создан базовый response: {}", response);
+        Response response = Response.create(request, bonus);
 
         try {
             if (request.getUid().equals("123")) {
@@ -62,39 +59,21 @@ public class MyController {
             }
             validationService.isValid(bindingResult);
         } catch (ValidationFailedException e) {
-            response.setCode(Codes.FAILED);
-            response.setErrorCode(ErrorCodes.VALIDATION_EXCEPTION);
-            response.setErrorMessage(ErrorMessages.VALIDATION);
-
-            log.info("Поле response.code изменилось на {}", response.getCode());
-            log.info("Поле response.errorCode изменилось на {}", response.getErrorCode());
-            log.info("Поле response.errorMessage изменилось на {}", response.getErrorMessage());
+            response.setValidationException();
 
             return new ResponseEntity<>(response, HttpStatus.BAD_REQUEST);
         } catch (UnsupportedCodeException e) {
-            response.setCode(Codes.FAILED);
-            response.setErrorCode(ErrorCodes.UNSUPPORTED_EXCEPTION);
-            response.setErrorMessage(ErrorMessages.UNSUPPORTED);
-
-            log.error("Поле response.code изменилось на {}", response.getCode());
-            log.error("Поле response.errorCode изменилось на {}", response.getErrorCode());
-            log.error("Поле response.errorMessage изменилось на {}", response.getErrorMessage());
+            response.setUnsupportedException();
 
             return new ResponseEntity<>(response, HttpStatus.BAD_REQUEST);
         } catch (Exception e) {
-            response.setCode(Codes.FAILED);
-            response.setErrorCode(ErrorCodes.UNKNOWN_EXCEPTION);
-            response.setErrorMessage(ErrorMessages.UNKNOWN);
-
-            log.error("Поле response.code изменилось на {}", response.getCode());
-            log.error("Поле response.errorCode изменилось на {}", response.getErrorCode());
-            log.error("Поле response.errorMessage изменилось на {}", response.getErrorMessage());
+            response.setUnknownException();
 
             return new ResponseEntity<>(response, HttpStatus.INTERNAL_SERVER_ERROR);
         }
 
         modifyResponseService.modify(response);
-        modifyRequestService.modify(request);
+//        modifyRequestService.modify(request);
 
         return new ResponseEntity<>(response, HttpStatus.OK);
 
